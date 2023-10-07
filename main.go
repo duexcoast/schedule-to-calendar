@@ -1,35 +1,49 @@
 package main
 
 import (
+	"fmt"
 	"io"
-	"log"
 	"os"
 	"runtime/debug"
 	"strconv"
 	"time"
 
-	"github.com/unidoc/unipdf/v3/common/license"
 	"golang.org/x/exp/slog"
 )
 
 func main() {
-	appConfig, err := newAppConfig(os.Stdout)
-	if err != nil {
-		log.Fatal(err)
-	}
-	common, err := newCommon(appConfig)
-	if err != nil {
-		log.Fatal(err)
-	}
-	app := newApp(appConfig, common)
-	logger := app.logger
-	logger.Debug("App initialized.")
+	// err := godotenv.Load()
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+	//
+	// appConfig, err := newAppConfig(os.Stdout)
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+	//
+	// common, err := newCommon(appConfig)
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+	//
+	// app := newApp(appConfig, common)
+	// logger := app.logger
+	// logger.Debug("App initialized.")
+	//
+	// // load metered License API key prior to using the Unidoc library
+	// UNIDOC_API_KEY := os.Getenv("UNIDOC_API_KEY")
+	// err = license.SetMeteredKey(UNIDOC_API_KEY)
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+	//
+	// parser := newParser("", "", common)
+	// parser.parse()
 
-	// load metered License API key prior to using the Unidoc library
-	err := license.SetMeteredKey(os.Getenv("UNIDOC_API_KEY"))
-	if err != nil {
-		log.Fatal(err)
-	}
+	records := readCSVFile("testdata/schedule.csv")
+
+	fmt.Println(records)
 }
 
 type app struct {
