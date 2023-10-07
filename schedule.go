@@ -11,6 +11,7 @@ type user struct {
 type weeklySchedule []shift
 
 type shift struct {
+	day       time.Weekday
 	startTime time.Time
 	endTime   time.Time
 }
