@@ -28,7 +28,7 @@ type pdfParser struct {
 	outPath string
 }
 
-func newParser(inPath, outPath string, common *Common) pdfParser {
+func newPDFParser(inPath, outPath string, common *Common) pdfParser {
 	parser := pdfParser{
 		Common:  common,
 		inPath:  inPath,

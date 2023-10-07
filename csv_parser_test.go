@@ -7,7 +7,7 @@ import (
 
 func TestNewShift(t *testing.T) {
 	t.Run("generate shift struct", func(t *testing.T) {
-		dateString := "10/14/23"
+		dateString := "10/14/2023"
 		timeString := "8:30am"
 
 		shift, err := newShift(timeString, dateString)
@@ -23,10 +23,7 @@ func TestGetWeeklyHours(t *testing.T) {
 	t.Run("parse csv file and get weekly schedule", func(t *testing.T) {
 		cfg, _ := newAppConfig(os.Stdout)
 		common, _ := newCommon(cfg)
-		user := user{
-			name:  "Conor Ney",
-			email: "conor.ux@gmail.com",
-		}
+		user := newUser("Conor Ney", "conor.ux@gmail.com")
 		parser := newCSVParser("testdata/schedule.csv", user, common)
 		parser.readCSVFile()
 

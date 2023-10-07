@@ -11,12 +11,12 @@ import (
 
 type csvParser struct {
 	*Common
-	user      user
+	user      *user
 	inputPath string
 	records   csvSchedRecords
 }
 
-func newCSVParser(inputPath string, user user, common *Common) *csvParser {
+func newCSVParser(inputPath string, user *user, common *Common) *csvParser {
 	csvParser := csvParser{
 		Common:    common,
 		inputPath: inputPath,
@@ -41,24 +41,18 @@ func (c *csvParser) readCSVFile() {
 		log.Fatalf("unable to parse file as a CSV. %q err=%v", c.inputPath, err)
 	}
 	c.records = records
-	// fmt.Printf("%v", c.records)
 }
 
-// getWeeklyHours converts an [][]string containing the entire schedule, and
-// returns []shift for csvParser.user
+// getWeeklyHours converts the parsed csv data held in csvParser.records into
+// []shift, for the employee specified in csvParser.user.
 func (c *csvParser) getWeeklyHours() (weeklySchedule, error) {
 	// map key is index and value is date, taken from top row of
 	// csv records
 	dateMap := map[int]string{}
 
-	fmt.Printf("LEN: %d\n", len(c.records[0]))
-
 	for i := 0; i < len(c.records[0]); i++ {
 		dateMap[i] = c.records[0][i]
 	}
-	// for k, v := range dateMap {
-	// fmt.Printf("key: %d\tvalue: %s\n", k, v)
-	// }
 
 	// this will be populated with the index of the employees hours.
 	// their hours are contained here and employeeIndex + 1
@@ -66,18 +60,20 @@ func (c *csvParser) getWeeklyHours() (weeklySchedule, error) {
 	// set match to true if we locate the employee by name
 	match := false
 
+	// this is the name of the employee as it appears on the schedule.
+	// We will compare against this to find the rows that belong to the
+	// employee
+	schedName := c.user.nameSchedFormat()
+	fmt.Println(schedName)
+
 	// loop over records and get the index of the employee
 	for i := 0; i < len(c.records); i++ {
-		fmt.Println(c.records[i][0])
 
-		// TODO: this shouldn't be hard coded. get name from user struct
-		// and convert it to the correct "Last, First" format
-		if c.records[i][0] == "Ney,Conor" {
+		if c.records[i][0] == schedName {
 			match = true
 			employeeIndex = i
 		}
 	}
-	fmt.Printf("Employee Index: %d\n", employeeIndex)
 
 	if !match {
 		return nil, fmt.Errorf("Could not find the employee in the csv file. %q", c.inputPath)
@@ -94,7 +90,7 @@ func (c *csvParser) getWeeklyHours() (weeklySchedule, error) {
 
 				shift, err := newShift(startTime, date)
 				if err != nil {
-					fmt.Println(err)
+					return nil, err
 				}
 				weeklySchedule = append(weeklySchedule, shift)
 			}
@@ -105,7 +101,7 @@ func (c *csvParser) getWeeklyHours() (weeklySchedule, error) {
 
 func newShift(startTime string, date string) (shift, error) {
 	// used for time.Parse, defines how to interpret string being parsed.
-	// we now need to concatenate the input strings into this format
+	// We now need to concatenate the input strings into this format
 	// and parse them
 	dateLayout := "1/2/2006 3:04pm MST"
 
@@ -115,7 +111,6 @@ func newShift(startTime string, date string) (shift, error) {
 
 	parsedStartTime, err := time.Parse(dateLayout, start)
 	if err != nil {
-		fmt.Println(err)
 		return shift, err
 	}
 

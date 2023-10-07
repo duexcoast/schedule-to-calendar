@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"runtime/debug"
@@ -38,12 +37,14 @@ func main() {
 	// 	log.Fatal(err)
 	// }
 	//
-	// parser := newParser("", "", common)
-	// parser.parse()
-
-	records := readCSVFile("testdata/schedule.csv")
-
-	fmt.Println(records)
+	// pdfParser := newPDFParser("", "", common)
+	// pdfParser.parse()
+	//
+	// user := user{}
+	//
+	// csvParser := newCSVParser(pdfParser.outPath, )
+	//
+	// records := readCSVFile("testdata/schedule.csv")
 }
 
 type app struct {
