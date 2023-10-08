@@ -122,6 +122,10 @@ func newShift(startTime string, date string) (shift, error) {
 	// way or the other, so normalizing it just in case
 	startTimeNormalized := strings.ReplaceAll(startTime, " ", "")
 
+	// TODO: Handle the case where start time is "on call", this means different
+	// things in the morning than it does in the evening, so we need to take the
+	// row into account
+
 	// switch case to set endTime based on startTimeNormalized
 	switch startTimeNormalized {
 	case "8:30am":

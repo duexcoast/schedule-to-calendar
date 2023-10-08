@@ -26,7 +26,6 @@ func TestGetWeeklyHours(t *testing.T) {
 		user := newUser("Conor Ney", "conor.ux@gmail.com")
 		parser := newCSVParser("testdata/schedule.csv", user, common)
 		parser.readCSVFile()
-
 		parser.getWeeklyHours()
 
 	})
