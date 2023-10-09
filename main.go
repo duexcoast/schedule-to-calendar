@@ -1,8 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"os"
+	"path"
 	"runtime/debug"
 	"strconv"
 	"time"
@@ -68,6 +70,8 @@ type appConfig struct {
 
 type Common struct {
 	logger *slog.Logger
+	// this is the folder where PDFs and CSVs will be saved to and read from
+	sharedDirectory string
 }
 
 func newAppConfig(output io.Writer) (appConfig, error) {
@@ -75,6 +79,7 @@ func newAppConfig(output io.Writer) (appConfig, error) {
 	debugEnv, err := strconv.ParseBool(os.Getenv("DEBUG"))
 	if err != nil {
 		debugEnv = false
+		fmt.Printf("Could not parse DEBUG env variable. err: %v", err)
 	}
 
 	return appConfig{
@@ -85,7 +90,8 @@ func newAppConfig(output io.Writer) (appConfig, error) {
 	}, nil
 }
 
-func newCommon(cfg appConfig) (*Common, error) {
+func newCommon(cfg appConfig, sharedDir string) (*Common, error) {
+	// Structured logging setup
 	logLevel := slog.LevelInfo
 	if cfg.debug {
 		logLevel = slog.LevelDebug
@@ -98,13 +104,20 @@ func newCommon(cfg appConfig) (*Common, error) {
 	logger := slog.New(slog.NewTextHandler(cfg.output, opts))
 	slog.SetDefault(logger)
 
+	// Create the shared directory if it doesn't exist yet. Including the /csv
+	// and /pdf subdirectories
+	csvPath := path.Join(sharedDir, "csv")
+	pdfPath := path.Join(sharedDir, "pdf")
+	os.MkdirAll(csvPath, 0750)
+	os.MkdirAll(pdfPath, 0750)
+
 	return &Common{
-		logger: logger,
+		logger:          logger,
+		sharedDirectory: sharedDir,
 	}, nil
 }
 
 func newApp(cfg appConfig, common *Common) app {
-
 	return app{
 		Common: common,
 		cfg:    cfg,

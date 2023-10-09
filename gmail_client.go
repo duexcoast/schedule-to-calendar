@@ -392,17 +392,12 @@ func (g *gmailClient) downloadAttachment(msg message) {
 	if err != nil {
 		g.logger.Debug("Unable to decode attachment %v: %v", msg.attachment.filename, err)
 		return
-		// return nil, err
 	}
 	if g.outPath == "" {
 		filename := makeFilename(msg.attachment.filename)
-		// fmt.Println("OUTPUTFILENAME:")
-		// fmt.Println(filename)
 		g.filename = filename
 		fullFilename := strings.Join([]string{g.filename, ".pdf"}, "")
-		g.outPath = path.Join("schedule", "pdf", fullFilename)
-
-		fmt.Printf("[OUTPATH ATTCH] %s\n", g.outPath)
+		g.outPath = path.Join(g.Common.sharedDirectory, "pdf", fullFilename)
 	}
 
 	f, err := os.Create(g.outPath)

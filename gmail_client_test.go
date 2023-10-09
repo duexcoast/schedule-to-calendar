@@ -38,13 +38,13 @@ func Test_generateGmailSearchTerm(t *testing.T) {
 }
 
 func Test_findScheduleEmail(t *testing.T) {
-	t.Run("find the schedule email sent today", func(t *testing.T) {
+	t.Run("find the schedule email sent October 8, 2023", func(t *testing.T) {
 		err := godotenv.Load()
 		if err != nil {
 			log.Fatal(err)
 		}
 		appConfig, _ := newAppConfig(os.Stdout)
-		common, _ := newCommon(appConfig)
+		common, _ := newCommon(appConfig, "testdata")
 		app := newApp(appConfig, common)
 		logger := app.logger
 		logger.Debug("app initialized")
@@ -59,7 +59,9 @@ func Test_findScheduleEmail(t *testing.T) {
 		if err != nil {
 			t.Fatalf(err.Error())
 		}
-		msg, err := g.findScheduleEmail()
+		// construct date for 10/8/2023, when a schedule email was sent
+		correctDate := time.Date(2023, time.October, 8, 23, 59, 59, 59, time.Local)
+		msg, err := g.findScheduleEmail(correctDate)
 		if err != nil {
 			t.Fatalf(err.Error())
 		}

@@ -19,10 +19,12 @@ type csvParser struct {
 }
 
 func newCSVParser(filename string, user *user, common *Common) *csvParser {
+	// add the correct extension to the filename
 	fullFilename := strings.Join([]string{filename, ".csv"}, "")
-	in := path.Join("schedule", "csv", fullFilename)
+	in := path.Join(common.sharedDirectory, "csv", fullFilename)
 	csvParser := csvParser{
 		Common:    common,
+		filename:  filename,
 		inputPath: in,
 		user:      user,
 	}

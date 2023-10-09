@@ -32,33 +32,17 @@ type pdfParser struct {
 }
 
 func newPDFParser(filename string, common *Common) pdfParser {
+	// take the filename and add the correct extensions for the in and out paths
 	fullIn := strings.Join([]string{filename, ".pdf"}, "")
 	fullOut := strings.Join([]string{filename, ".csv"}, "")
-	in := path.Join("schedule", "pdf", fullIn)
-	out := path.Join("schedule", "csv", fullOut)
-	fmt.Println(out)
+	in := path.Join(common.sharedDirectory, "pdf", fullIn)
+	out := path.Join(common.sharedDirectory, "csv", fullOut)
 	parser := pdfParser{
 		filename: filename,
 		inPath:   in,
 		outPath:  out,
 		Common:   common,
-		// inPath:  inPath,
-		// outPath: outPath,
 	}
-	// if inPath == "" {
-	// 	parser.inPath = "testdata/Server-Schedule-10.9-10.15.pdf"
-	// }
-	// if outPath == "" {
-	// 	date := reDate.FindString(parser.inPath)
-	// 	fmt.Println(date)
-	// 	if date == "" {
-	//
-	// 		// log.Debug("could not find date in inPath filename: %q", parser.inPath)
-	// 	}
-	// 	filename := strings.Join([]string{"schedule-", date, ".csv"}, "")
-	// 	filepath := path.Join("schedules", "csv", filename)
-	// 	parser.outPath = filepath
-	// }
 	return parser
 }
 
