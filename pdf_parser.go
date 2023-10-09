@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"path"
 	"sort"
 	"strings"
 
@@ -22,24 +23,42 @@ var saveParams saveMarkedupParams
 type pdfParser struct {
 	*Common
 
+	// filename does not include extension
+	filename string
 	// path to input PDF of weekly schedule
 	inPath string
 	// path to output CSV of weekly schedule
 	outPath string
 }
 
-func newPDFParser(inPath, outPath string, common *Common) pdfParser {
+func newPDFParser(filename string, common *Common) pdfParser {
+	fullIn := strings.Join([]string{filename, ".pdf"}, "")
+	fullOut := strings.Join([]string{filename, ".csv"}, "")
+	in := path.Join("schedule", "pdf", fullIn)
+	out := path.Join("schedule", "csv", fullOut)
+	fmt.Println(out)
 	parser := pdfParser{
-		Common:  common,
-		inPath:  inPath,
-		outPath: outPath,
+		filename: filename,
+		inPath:   in,
+		outPath:  out,
+		Common:   common,
+		// inPath:  inPath,
+		// outPath: outPath,
 	}
-	if inPath == "" {
-		parser.inPath = "testdata/Server-Schedule-10.9-10.15.pdf"
-	}
-	if outPath == "" {
-		parser.outPath = "testdata/schedule.csv"
-	}
+	// if inPath == "" {
+	// 	parser.inPath = "testdata/Server-Schedule-10.9-10.15.pdf"
+	// }
+	// if outPath == "" {
+	// 	date := reDate.FindString(parser.inPath)
+	// 	fmt.Println(date)
+	// 	if date == "" {
+	//
+	// 		// log.Debug("could not find date in inPath filename: %q", parser.inPath)
+	// 	}
+	// 	filename := strings.Join([]string{"schedule-", date, ".csv"}, "")
+	// 	filepath := path.Join("schedules", "csv", filename)
+	// 	parser.outPath = filepath
+	// }
 	return parser
 }
 
@@ -48,12 +67,12 @@ func (p pdfParser) parse() {
 		markupType:       "all",
 		markupOutputPath: "/tmp/markup.pdf",
 	}
-
 	p.extractTableData()
 }
 
 func (p pdfParser) extractTableData() error {
 	f, err := os.Open(p.inPath)
+
 	if err != nil {
 		return fmt.Errorf("Could not open %s err=%v", p.inPath, err)
 	}

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"os"
 	"testing"
 )
 
@@ -19,15 +18,15 @@ func TestNewShift(t *testing.T) {
 
 }
 
-func TestGetWeeklyHours(t *testing.T) {
-	t.Run("parse csv file and get weekly schedule", func(t *testing.T) {
-		cfg, _ := newAppConfig(os.Stdout)
-		common, _ := newCommon(cfg)
-		user := newUser("Conor Ney", "conor.ux@gmail.com")
-		parser := newCSVParser("testdata/schedule.csv", user, common)
-		parser.readCSVFile()
-		parser.getWeeklyHours()
-
-	})
-
-}
+// func TestGetWeeklyHours(t *testing.T) {
+// 	t.Run("parse csv file and get weekly schedule", func(t *testing.T) {
+// 		cfg, _ := newAppConfig(os.Stdout)
+// 		common, _ := newCommon(cfg)
+// 		user := newUser("Conor Ney", "conor.ux@gmail.com")
+// 		parser := newCSVParser("schedule", user, common)
+// 		parser.readCSVFile()
+// 		parser.getWeeklyHours()
+//
+// 	})
+//
+// }

@@ -3,6 +3,7 @@ module github.com/duexcoast/schedule-to-calendar
 go 1.21.1
 
 require (
+	github.com/joho/godotenv v1.5.1
 	github.com/unidoc/unipdf/v3 v3.50.0
 	golang.org/x/exp v0.0.0-20231006140011-7918f672742d
 	golang.org/x/oauth2 v0.13.0

@@ -2,7 +2,6 @@ package main
 
 import (
 	"io"
-	"log"
 	"os"
 	"runtime/debug"
 	"strconv"
@@ -47,11 +46,11 @@ func main() {
 	//
 	// records := readCSVFile("testdata/schedule.csv")
 
-	srv, err := setupGmailService()
-	if err != nil {
-		log.Fatal(err)
-	}
-	FindScheduleEmail(srv)
+	// srv, err := setupGmailService()
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+	// FindScheduleEmail(srv)
 }
 
 type app struct {

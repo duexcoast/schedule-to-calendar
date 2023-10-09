@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path"
 	"strings"
 	"time"
 )
@@ -12,14 +13,17 @@ import (
 type csvParser struct {
 	*Common
 	user      *user
+	filename  string
 	inputPath string
 	records   csvSchedRecords
 }
 
-func newCSVParser(inputPath string, user *user, common *Common) *csvParser {
+func newCSVParser(filename string, user *user, common *Common) *csvParser {
+	fullFilename := strings.Join([]string{filename, ".csv"}, "")
+	in := path.Join("schedule", "csv", fullFilename)
 	csvParser := csvParser{
 		Common:    common,
-		inputPath: inputPath,
+		inputPath: in,
 		user:      user,
 	}
 
