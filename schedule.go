@@ -30,7 +30,7 @@ func (u *user) nameSchedFormat() string {
 type weeklySchedule []shift
 
 type shift struct {
-	day       time.Weekday
-	startTime time.Time
-	endTime   time.Time
+	Day       time.Weekday
+	StartTime time.Time
+	EndTime   time.Time
 }

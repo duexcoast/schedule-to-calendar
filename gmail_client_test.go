@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path"
 	"testing"
 	"time"
 
 	"github.com/joho/godotenv"
-	"github.com/unidoc/unipdf/v3/common/license"
 )
 
 func Test_generateGmailSearchTerm(t *testing.T) {
@@ -44,20 +44,24 @@ func Test_findScheduleEmail(t *testing.T) {
 			log.Fatal(err)
 		}
 		appConfig, _ := newAppConfig(os.Stdout)
-		common, _ := newCommon(appConfig, "testdata")
+
+		sharedDir := path.Join("testdata", "gmail_client")
+		common, _ := newCommon(appConfig, sharedDir)
 		app := newApp(appConfig, common)
-		logger := app.logger
-		logger.Debug("app initialized")
 
 		// load metered License API key prior to using the Unidoc library
-		UNIDOC_API_KEY := os.Getenv("UNIDOC_API_KEY")
-		err = license.SetMeteredKey(UNIDOC_API_KEY)
+		// UNIDOC_API_KEY := os.Getenv("UNIDOC_API_KEY")
+		// err = license.SetMeteredKey(UNIDOC_API_KEY)
+		// if err != nil {
+		// 	log.Fatal(err)
+		// }
+		gClient, err := setupGoogleClient()
 		if err != nil {
-			log.Fatal(err)
+			t.Fatal(err)
 		}
-		g, err := newGmailClient(common)
+		g, err := newGmailService(app.Common, gClient)
 		if err != nil {
-			t.Fatalf(err.Error())
+			t.Fatal(err)
 		}
 		// construct date for 10/8/2023, when a schedule email was sent
 		correctDate := time.Date(2023, time.October, 8, 23, 59, 59, 59, time.Local)
@@ -67,18 +71,18 @@ func Test_findScheduleEmail(t *testing.T) {
 		}
 		g.downloadAttachment(msg)
 		pdfParser := newPDFParser(g.filename, common)
-		pdfParser.parse()
+		pdfParser.ParsePDF()
 		user := newUser("Conor Ney", "conor.ux@gmail.com")
 		csvParser := newCSVParser(pdfParser.filename, user, common)
-		csvParser.readCSVFile()
-		weeklySchedule, err := csvParser.getWeeklyHours()
+		records := csvParser.readCSVFile()
+		weeklySchedule, err := csvParser.getWeeklyHours(records)
 		if err != nil {
 			fmt.Printf("error parsing schedule, err: %v", err)
 		}
 		for _, v := range weeklySchedule {
-			fmt.Printf("[day] %s\n", v.day)
-			fmt.Printf("[start] %s\n", v.startTime)
-			fmt.Printf("[end] %s\n", v.endTime)
+			fmt.Printf("[day] %s\n", v.Day)
+			fmt.Printf("[start] %s\n", v.StartTime)
+			fmt.Printf("[end] %s\n", v.EndTime)
 		}
 	})
 }

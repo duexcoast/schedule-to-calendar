@@ -4,20 +4,15 @@ import (
 	"bufio"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
-	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path"
 	"regexp"
 	"strings"
 	"time"
 
-	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/google"
 	"google.golang.org/api/gmail/v1"
 	"google.golang.org/api/option"
 )
@@ -28,24 +23,30 @@ const dateRegex = `^\d.*\d$`
 var rePDF = regexp.MustCompile(pdfRegex)
 var reDate = regexp.MustCompile(dateRegex)
 
-type gmailClient struct {
+type gmailService struct {
 	*Common
-	srv *gmail.Service
+
+	googleClient *http.Client
+	srv          *gmail.Service
 	searchCriteria
 	// does not include extension
 	filename string
 	outPath  string
 }
 
-func newGmailClient(common *Common) (*gmailClient, error) {
-	srv, err := setupGmailService()
+func newGmailService(common *Common, googleClient *http.Client) (*gmailService, error) {
+	gmailSrvc := &gmailService{
+		Common:       common,
+		googleClient: googleClient,
+	}
+	ctx := context.Background()
+	srv, err := gmail.NewService(ctx, option.WithHTTPClient(gmailSrvc.googleClient))
 	if err != nil {
+		err = fmt.Errorf("Unable to retrieve Gmail client: %v", err)
 		return nil, err
 	}
-	return &gmailClient{
-		Common: common,
-		srv:    srv,
-	}, err
+	gmailSrvc.srv = srv
+	return gmailSrvc, nil
 }
 
 type searchCriteria struct {
@@ -128,138 +129,7 @@ type attachment struct {
 	attachmentID string
 }
 
-// Retrieve a token, saves the token, then returns the generated client.
-func getClient(config *oauth2.Config) *http.Client {
-	// The file token.json stores the user's access and refresh tokens, and is
-	// created automatically when the authorization flow completes for the first
-	// time
-	tokFile := "token.json"
-	tok, err := tokenFromFile(tokFile)
-	if err != nil {
-		tok = getTokenFromWeb(config)
-		saveToken(tokFile, tok)
-	}
-
-	return config.Client(context.Background(), tok)
-}
-
-// Request a token from the web, then returns the retrieved token.
-func getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
-	ch := make(chan string)
-	randState := fmt.Sprintf("st%d", time.Now().UnixNano())
-	ts := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-		if req.URL.Path == "/favicon.ico" {
-			http.Error(rw, "", 404)
-			return
-		}
-		if req.FormValue("state") != randState {
-			log.Printf("State doesn't match: req = %#v", req)
-			http.Error(rw, "", 500)
-			return
-		}
-		if code := req.FormValue("code"); code != "" {
-			fmt.Fprintf(rw, "<h1>Success</h1>Authorized.")
-			rw.(http.Flusher).Flush()
-			ch <- code
-			return
-		}
-		log.Printf(" no code")
-		http.Error(rw, "", 500)
-	}))
-	defer ts.Close()
-
-	config.RedirectURL = ts.URL
-	authURL := config.AuthCodeURL(randState)
-	go openURL(authURL)
-	log.Printf("Authorize this app at: %s", authURL)
-	code := <-ch
-	log.Printf("Got code: %s", code)
-
-	token, err := config.Exchange(context.TODO(), code)
-	if err != nil {
-		log.Fatalf("Token exchange error: %v", err)
-	}
-	return token
-}
-
-func openURL(url string) {
-	try := []string{"xdg-open", "google chrome", "open"}
-	for _, bin := range try {
-		err := exec.Command(bin, url).Run()
-		if err != nil {
-			return
-		}
-	}
-}
-
-// Retrieves token from local file.
-func tokenFromFile(file string) (*oauth2.Token, error) {
-	f, err := os.Open(file)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	tok := &oauth2.Token{}
-	err = json.NewDecoder(f).Decode(tok)
-	return tok, err
-}
-
-func saveToken(path string, token *oauth2.Token) {
-	fmt.Printf("Saving credential file to: %q\n", path)
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
-	if err != nil {
-		log.Fatalf("Unable to cache oauth token: %v", err)
-	}
-	defer f.Close()
-	json.NewEncoder(f).Encode(token)
-}
-
-func setupGmailService() (*gmail.Service, error) {
-	ctx := context.Background()
-	b, err := os.ReadFile("credentials.json")
-	if err != nil {
-		err = fmt.Errorf("Unable to read client secret file: %v", err)
-		return nil, err
-	}
-
-	// If modifying these scopes, delete your previously saved token.json
-	config, err := google.ConfigFromJSON(b, gmail.GmailReadonlyScope)
-	if err != nil {
-		err = fmt.Errorf("Unable to parse client secret file to config: %v", err)
-		return nil, err
-	}
-	client := getClient(config)
-
-	srv, err := gmail.NewService(ctx, option.WithHTTPClient(client))
-	if err != nil {
-		err = fmt.Errorf("Unable to retrieve Gmail client: %v", err)
-		return nil, err
-	}
-	return srv, nil
-	//
-	// user := "me"
-	// r, err := srv.Users.Labels.List(user).Do()
-	// if err != nil {
-	// 	err = fmt.Errorf("Unable to retrieve labels: %v", err)
-	// 	return nil, err
-	// }
-	// if len(r.Labels) != 0 {
-	// 	fmt.Println("No labels found.")
-	// 	return
-	// }
-	// fmt.Println("Labels:")
-	// for _, l := range r.Labels {
-	// 	fmt.Printf("- %s\n", l)
-	// }
-}
-
-// TODO: Provide date to search for email. Going to search daily at 11:59pm for
-// a schedule email sent that day. Function accepts date as param, returns the
-// message. A separate function can then take the message and download the attachment
-// that is the schedule PDF. We can then update the DB with the scheudle attachment
-// data. This way, we can alawys correct schedules that were updated.
-
-func (g *gmailClient) findAllScheduleEmails(srv *gmail.Service) {
+func (g *gmailService) findAllScheduleEmails(srv *gmail.Service) {
 	msgs := []message{}
 
 	// "from:(yolanda.gureckas@starr-restaurant.com) subject:(Server Schedule) has:attachment"
@@ -319,7 +189,7 @@ func (g *gmailClient) findAllScheduleEmails(srv *gmail.Service) {
 
 }
 
-func (g *gmailClient) findScheduleEmail(date ...time.Time) (message, error) {
+func (g *gmailService) findScheduleEmail(date ...time.Time) (message, error) {
 	user := "me"
 	var sc searchCriteria
 	switch len(date) {
@@ -377,17 +247,14 @@ func (g *gmailClient) findScheduleEmail(date ...time.Time) (message, error) {
 	return message, nil
 }
 
-func (g *gmailClient) downloadAttachment(msg message) {
+func (g *gmailService) downloadAttachment(msg message) {
 	req := g.srv.Users.Messages.Attachments.Get("me", msg.msgId,
 		msg.attachment.attachmentID)
 	attachment, err := req.Do()
-	fmt.Println("HERE1")
 	if err != nil {
 		g.logger.Debug("Unable to retrieve attachment %v: %v", msg.attachment.filename, err)
-		fmt.Println("HERE1.5")
 		return
 	}
-	fmt.Println("HERE2")
 	decoded, err := base64.URLEncoding.DecodeString(attachment.Data)
 	if err != nil {
 		g.logger.Debug("Unable to decode attachment %v: %v", msg.attachment.filename, err)
@@ -414,10 +281,9 @@ func (g *gmailClient) downloadAttachment(msg message) {
 	// return f, nil
 }
 
-// makeFilename removes spaces from the filename
+// makeFilename removes spaces and extension from the filename
 func makeFilename(name string) string {
 	noSpaces := strings.Replace(name, " ", "", -1)
-	// fmt.Printf("[noSpaces] %s", noSpaces)
 	fileName := strings.Replace(noSpaces, ".pdf", "", -1)
 	return fileName
 }

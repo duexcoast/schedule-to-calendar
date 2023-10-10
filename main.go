@@ -118,6 +118,7 @@ func newCommon(cfg appConfig, sharedDir string) (*Common, error) {
 }
 
 func newApp(cfg appConfig, common *Common) app {
+	common.logger.Info("App initialized")
 	return app{
 		Common: common,
 		cfg:    cfg,
