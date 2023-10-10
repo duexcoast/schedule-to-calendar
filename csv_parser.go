@@ -19,12 +19,11 @@ var reRepairCSV = regexp.MustCompile(repairCSVRegex)
 
 type csvParser struct {
 	*Common
-	user      *user
 	filename  string
 	inputPath string
 }
 
-func newCSVParser(filename string, user *user, common *Common) *csvParser {
+func newCSVParser(filename string, common *Common) *csvParser {
 	// add the correct extension to the filename
 	fullFilename := strings.Join([]string{filename, ".csv"}, "")
 	in := path.Join(common.sharedDirectory, "csv", fullFilename)
@@ -32,7 +31,6 @@ func newCSVParser(filename string, user *user, common *Common) *csvParser {
 		Common:    common,
 		filename:  filename,
 		inputPath: in,
-		user:      user,
 	}
 
 	return &csvParser

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -29,7 +28,6 @@ type gmailService struct {
 	googleClient *http.Client
 	srv          *gmail.Service
 	searchCriteria
-	// does not include extension
 	filename string
 	outPath  string
 }
@@ -52,8 +50,6 @@ func newGmailService(common *Common, googleClient *http.Client) (*gmailService, 
 type searchCriteria struct {
 	// sender's email
 	email string
-	// if false then we will ignore the endDate
-	rangeSearch bool
 	// date to begin searching
 	after string
 	// date to end searching
@@ -64,36 +60,52 @@ type searchCriteria struct {
 	hasAttachment bool
 	// name of the attachment, not used in search but used to confirm we have
 	// the correct attachment
-	attachmentName regexp.Regexp
+	attachmentName *regexp.Regexp
 }
 
-// dates is a variadic parameter, it can include 0-2 values: the first being the
-// startTime for the search and teh second being the endTime for the search.
-func newSearchCriteria(email, subject string, rangeSearch bool, dates ...time.Time) searchCriteria {
-	// get the current time
-	currentTime := time.Now()
+// newSearchCriteria returns a searchCriteria struct for use in searching a
+// gmail inbox. The dates parameter is variadic and can handle three conditions:
+//  1. No dates provided. This will return a searchCriteria that searches the
+//     inbox for messages sent today only.
+//  2. One date provided. This will return a searchCriteria that searches the
+//     inbox for messages sent on this specific date.
+//  3. Two dates provided. This indicates a range search and will search the
+//     inbox for messages sent between the two dates. The second date is non-
+//     inclusive (messages sent on that date will not be included in the results)
+//
+// If more than two dates are provided, then the rest will be ignored.
+func newSearchCriteria(email, subject string, dates ...time.Time) searchCriteria {
+	// declare start and end date variables
+	var startDate, endDate string
+
+	// get the current time, and one day in advance
 	oneDay := 24 * time.Hour
 
-	// we want the default search to be within 1 day.
-	yesterday := currentTime.Add(-oneDay)
-	startDate := timeToGmailFormat(yesterday)
-	if len(dates) == 1 {
+	// if there is only one date provided, then we want to perform a search for
+	// that day specifically.
+	switch len(dates) {
+	case 0:
+		// we want the default search to be within 1 day. that means we want the
+		// after field to be today, and the before field to be one day in the future.
+		today := time.Now()
+		tomorrow := today.Add(oneDay)
+
+		startDate = timeToGmailFormat(today)
+		endDate = timeToGmailFormat(tomorrow)
+	case 1:
 		startDate = timeToGmailFormat(dates[0])
-	}
-	// check if just the start date value is included, if so
-	var endDate string
-	if rangeSearch {
+		endDate = timeToGmailFormat(dates[0].Add(oneDay))
+	default:
 		startDate, endDate = timeToGmailFormat(dates[0]), timeToGmailFormat(dates[1])
 	}
 
 	return searchCriteria{
 		email:          email,
 		subject:        subject,
-		rangeSearch:    rangeSearch,
 		after:          startDate,
 		before:         endDate,
 		hasAttachment:  true,
-		attachmentName: *rePDF,
+		attachmentName: rePDF,
 	}
 }
 
@@ -103,10 +115,7 @@ func newSearchCriteria(email, subject string, rangeSearch bool, dates ...time.Ti
 func (sc searchCriteria) generateGmailSearchTerm() string {
 	// "from:(yolanda.gureckas@starr-restaurant.com) subject:(Server Schedule) has:attachment"
 	var b strings.Builder
-	fmt.Fprintf(&b, "from:(%s) subject:(%s) has:attachment after:%s", sc.email, sc.subject, sc.after)
-	if sc.rangeSearch {
-		fmt.Fprintf(&b, " before: %s", sc.before)
-	}
+	fmt.Fprintf(&b, "from:(%s) subject:(%s) has:attachment before:%s after:%s", sc.email, sc.subject, sc.before, sc.after)
 	return b.String()
 }
 
@@ -129,28 +138,39 @@ type attachment struct {
 	attachmentID string
 }
 
-func (g *gmailService) findAllScheduleEmails(srv *gmail.Service) {
+// findAllScheduleEmails will return a []message containing all schedule emails
+// sent after 1/1/2023.
+func (g *gmailService) findAllScheduleEmails(srv *gmail.Service) ([]message, error) {
 	msgs := []message{}
 
-	// "from:(yolanda.gureckas@starr-restaurant.com) subject:(Server Schedule) has:attachment"
 	before := time.Date(2023, time.January, 1, 0, 0, 0, 0, time.Local)
 	sc := newSearchCriteria("yolanda.gureckas@starr-restaurant", "Server Schedule",
-		true, time.Now(), before)
+		time.Now(), before)
 	g.searchCriteria = sc
 
+	// user is special value for gmail API: used for userID and indicates the
+	// currently authenticated user
 	user := "me"
 	searchString := g.generateGmailSearchTerm()
-	req := srv.Users.Messages.List(user).Q(searchString)
-	r, err := req.Do()
+	r, err := srv.Users.Messages.List(user).Q(searchString).Do()
 	if err != nil {
-		log.Fatalf("Unable to retrieve messages: %v", err)
+		// TODO: I still need to figure out the best way to log things and where
+		// to handle errors. Should I still log here if I'm returning the error?
+		// Should I log the error message like this? I think more structured
+		// information would be better
+		newErr := fmt.Errorf("Unable to retrieve message list from gmail: %w", err)
+		g.logger.Error(newErr.Error())
+		return nil, newErr
 	}
 
-	log.Printf("Processing %v messages...\n", len(r.Messages))
+	g.logger.Info("Processing messages from gmail inbox", "numMsgs", len(r.Messages))
 	for _, m := range r.Messages {
-		msg, err := srv.Users.Messages.Get("me", m.Id).Do()
+		msg, err := srv.Users.Messages.Get(user, m.Id).Do()
 		if err != nil {
-			log.Fatalf("Unable to retrieve message %v: %v", m.Id, err)
+			// If we can't retrieve a particular message, we'll just log it
+			// and continue to the next message
+			g.logger.Error("Unable to retrieve message", "msgID", m.Id)
+			continue
 		}
 		date := ""
 		for _, h := range msg.Payload.Headers {
@@ -159,50 +179,70 @@ func (g *gmailService) findAllScheduleEmails(srv *gmail.Service) {
 				break
 			}
 		}
+		// TODO: I forget if this will initialize to nil or zero values. This is
+		// important for the check below to see if we found an attachment
+		var schedAttachment attachment
+
+		for _, msg := range msg.Payload.Parts {
+			if g.attachmentName.MatchString(msg.Filename) {
+				fmt.Println(msg.Filename)
+				schedAttachment.filename = msg.Filename
+				schedAttachment.attachmentID = msg.Body.AttachmentId
+			}
+
+		}
+		if schedAttachment.attachmentID == "" {
+			// log and continue to next iteration
+			g.logger.Error("This message did not contain a schedule attachment", "msgId", m.Id)
+			continue
+		}
+
 		msgs = append(msgs, message{
-			msgId:   msg.Id,
-			date:    date,
-			snippet: msg.Snippet,
+			msgId:      msg.Id,
+			date:       date,
+			snippet:    msg.Snippet,
+			attachment: schedAttachment,
 		})
 	}
-
-	count := 0
-	reader := bufio.NewReader(os.Stdin)
-
-	for _, m := range msgs {
-		count++
-		fmt.Printf("\nMessage URL: https://mail.google.com/mail/u/0/#all/%v\n", m.msgId)
-		fmt.Printf("Size: %v, Date: %v, Snippet: %q\n", m.size, m.date, m.snippet)
-		fmt.Printf("Options: (r)ead, (s)kip, (q)uit: [s] ")
-		val := ""
-		if val, err = reader.ReadString('\n'); err != nil {
-			log.Fatalf("unable to scan input: %v", err)
-		}
-		val = strings.TrimSpace(val)
-		switch val {
-		case "q": // quit
-			log.Printf("Done.  %v messages processed\n", count)
-			os.Exit(0)
-		default:
-		}
-	}
+	return msgs, nil
 
 }
 
+// findScheduleEmail will search for a schedule email and return the first
+// message matching the date provided. The dates parameter is variadic and can
+// handle three cases:
+//  1. No dates provided. In this case we will search for emails sent TODAY.
+//  2. One date provided. We will search for messages sent on this specific date.
+//  3. Two dates provided. This indicates a range search, we will search for
+//     schedule emails sent within this range and return the first result found.
+//
+// If more than two dates are provided, then the rest will be ignored.
+//
+// The function finds the attachment containing the schedule and saves it in the
+// message.attachment field
 func (g *gmailService) findScheduleEmail(date ...time.Time) (message, error) {
+	// TODO: The searchCriteria information is hardcoded in this function, and
+	// if the format of Server Schedule emails changes, that will need to
+	// change here. This is not the ideal way of doing things, and should be
+	// restructured.
+
 	user := "me"
 	var sc searchCriteria
 	switch len(date) {
+	// There is no date provided. This means we want to search for schedule emails
+	// that were sent TODAY.
 	case 0:
 		sc = newSearchCriteria("yolanda.gureckas@starr-restaurant.com",
-			"Server Schedule", false)
+			"Server Schedule")
+	// There is one date provided. This means that we want to search for schedule
+	// emails sent on a specific day.
 	case 1:
 		sc = newSearchCriteria("yolanda.gureckas@starr-restaurant.com",
-			"Server Schedule", false, date[0])
+			"Server Schedule", date[0])
 
 	case 2:
 		sc = newSearchCriteria("yolanda.gureckas@starr-restaurant.com",
-			"Server Schedule", true, date[0], date[1])
+			"Server Schedule", date[0], date[1])
 	}
 	g.searchCriteria = sc
 	req := g.srv.Users.Messages.List(user).Q(g.generateGmailSearchTerm())
@@ -237,6 +277,11 @@ func (g *gmailService) findScheduleEmail(date ...time.Time) (message, error) {
 
 	}
 
+	// Handle case where a matching attachment is not found
+	if schedAttachment.attachmentID == "" {
+		return message{}, fmt.Errorf("This message did not contain an attachment matching the schedule PDF")
+	}
+
 	message := message{
 		msgId:      msg.Id,
 		date:       msgDate,
@@ -247,43 +292,71 @@ func (g *gmailService) findScheduleEmail(date ...time.Time) (message, error) {
 	return message, nil
 }
 
-func (g *gmailService) downloadAttachment(msg message) {
+// downloadAttachment takes the msg provided as an argument and downloads
+// the msg.attachment as a PDF. It saves the file in the shared directory
+// specified by g.Common.sharedDirectory in a "/pdf" subdirectory. The name of
+// the file is the same as the name of the attachment, with spaces removed.
+//
+// g.filename is set to the filename with the extension removed. This allows us
+// to pass the filename through the pdfParser and csvParser and conveniently add
+// the appropriate file extension upon format conversion.
+func (g *gmailService) downloadAttachment(msg message) error {
 	req := g.srv.Users.Messages.Attachments.Get("me", msg.msgId,
 		msg.attachment.attachmentID)
 	attachment, err := req.Do()
 	if err != nil {
-		g.logger.Debug("Unable to retrieve attachment %v: %v", msg.attachment.filename, err)
-		return
+		g.logger.Error("Unable to retrieve attachment", "attachmentName",
+			msg.attachment.filename, "attachmentID",
+			msg.attachment.attachmentID, "err", err.Error())
+		return err
 	}
 	decoded, err := base64.URLEncoding.DecodeString(attachment.Data)
 	if err != nil {
-		g.logger.Debug("Unable to decode attachment %v: %v", msg.attachment.filename, err)
-		return
+		g.logger.Error("Unable to decode attachment", "attachmentName",
+			msg.attachment.filename, "attachmentID",
+			msg.attachment.attachmentID, "err", err.Error())
+		return err
 	}
-	if g.outPath == "" {
-		filename := makeFilename(msg.attachment.filename)
-		g.filename = filename
-		fullFilename := strings.Join([]string{g.filename, ".pdf"}, "")
-		g.outPath = path.Join(g.Common.sharedDirectory, "pdf", fullFilename)
-	}
+	// if g.outPath == "" {
+	filename := makeFilename(msg.attachment.filename)
+	g.filename = filename
+	fullFilename := strings.Join([]string{g.filename, ".pdf"}, "")
+	g.outPath = path.Join(g.sharedDirectory, "pdf", fullFilename)
+	// }
 
 	f, err := os.Create(g.outPath)
 	if err != nil {
-		g.logger.Debug("Could not create file: %q err: %v", msg.attachment.filename, err)
-		return
-		// return nil, err
+		g.logger.Error("Could not create file", "pathName", g.outPath,
+			"attachmentName", msg.attachment.filename, "attachmentID",
+			msg.attachment.attachmentID, "err", err.Error())
+		return err
 	}
 	defer f.Close()
 	_, err = f.Write(decoded)
 	if err != nil {
-		g.logger.Debug("could not write attachment to file: %q err: %v", msg.attachment.filename, err)
+		g.logger.Error("Could not write attachment to file: %q err: %v",
+			"pathName", g.outPath, "attachmentName", msg.attachment.filename,
+			"attachmentID", msg.attachment.attachmentID, "err", err.Error())
+		return err
 	}
-	// return f, nil
+	return nil
+}
+
+func (g *gmailService) downloadAttachmentsSlice(msgs []message) {
+	for _, msg := range msgs {
+		if err := g.downloadAttachment(msg); err != nil {
+			// log and continue
+			g.logger.Error("Could not download attachment", "msgID", msg.msgId,
+				"attachmentName", msg.attachment.filename, "attachmentID",
+				msg.attachment.attachmentID)
+			continue
+		}
+	}
 }
 
 // makeFilename removes spaces and extension from the filename
 func makeFilename(name string) string {
 	noSpaces := strings.Replace(name, " ", "", -1)
-	fileName := strings.Replace(noSpaces, ".pdf", "", -1)
-	return fileName
+	filename := strings.Replace(noSpaces, ".pdf", "", -1)
+	return filename
 }

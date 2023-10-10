@@ -20,10 +20,10 @@ func newUser(name, email string) *user {
 }
 
 func (u *user) nameSchedFormat() string {
-	splitName := strings.Split(u.name, " ")
+	lowerName := strings.ToLower(u.name)
+	splitName := strings.Split(lowerName, " ")
 	first := splitName[0]
 	last := splitName[1]
-	//
 	return strings.Join([]string{last, first}, ",")
 }
 

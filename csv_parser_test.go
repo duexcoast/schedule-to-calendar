@@ -129,9 +129,8 @@ func Test_readCSVFile(t *testing.T) {
 
 	for name, test := range tc {
 		t.Run(name, func(t *testing.T) {
-			user := newUser("Conor Ney", "conor.ux@gmail.com")
 
-			csvParser := newCSVParser(test.filename, user, app.Common)
+			csvParser := newCSVParser(test.filename, app.Common)
 			records := csvParser.readCSVFile()
 
 			if !cmp.Equal(records, test.expected) {
@@ -189,8 +188,7 @@ func Test_getWeeklyHours(t *testing.T) {
 
 	for name, test := range tc {
 		t.Run(name, func(t *testing.T) {
-			user := newUser("Conor Ney", "conor.ux@gmail.com")
-			csvParser := newCSVParser(test.filename, user, app.Common)
+			csvParser := newCSVParser(test.filename, app.Common)
 			records := csvParser.readCSVFile()
 			weeklySchedule, err := csvParser.getWeeklyHours(records)
 			if err != nil {
@@ -347,9 +345,7 @@ func Test_fixRow(t *testing.T) {
 
 	for name, test := range tc {
 		t.Run(name, func(t *testing.T) {
-			user := newUser("Conor Ney", "conor.ux@gmail.com")
-
-			csvParser := newCSVParser("ServerSchedule10.16-10.22", user, app.Common)
+			csvParser := newCSVParser("ServerSchedule10.16-10.22", app.Common)
 			records := csvParser.readCSVFile()
 
 			newRow := csvParser.fixRow(records, test.rowData, 5, 0)

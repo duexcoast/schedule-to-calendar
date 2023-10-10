@@ -72,6 +72,7 @@ type Common struct {
 	logger *slog.Logger
 	// this is the folder where PDFs and CSVs will be saved to and read from
 	sharedDirectory string
+	user            *user
 }
 
 func newAppConfig(output io.Writer) (appConfig, error) {
@@ -90,7 +91,7 @@ func newAppConfig(output io.Writer) (appConfig, error) {
 	}, nil
 }
 
-func newCommon(cfg appConfig, sharedDir string) (*Common, error) {
+func newCommon(cfg appConfig, sharedDir string, user *user) (*Common, error) {
 	// Structured logging setup
 	logLevel := slog.LevelInfo
 	if cfg.debug {
@@ -112,6 +113,7 @@ func newCommon(cfg appConfig, sharedDir string) (*Common, error) {
 	os.MkdirAll(pdfPath, 0750)
 
 	return &Common{
+		user:            user,
 		logger:          logger,
 		sharedDirectory: sharedDir,
 	}, nil
