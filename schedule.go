@@ -3,6 +3,9 @@ package main
 import (
 	"strings"
 	"time"
+
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 type user struct {
@@ -19,12 +22,16 @@ func newUser(name, email string) *user {
 	return user
 }
 
+// santizes name and returns it in the way it appears on the schedule: "Ney,Conor"
 func (u *user) nameSchedFormat() string {
 	lowerName := strings.ToLower(u.name)
-	splitName := strings.Split(lowerName, " ")
+	caser := cases.Title(language.AmericanEnglish)
+	titleCased := caser.String(lowerName)
+
+	splitName := strings.Split(titleCased, " ")
 	first := splitName[0]
 	last := splitName[1]
-	return strings.Join([]string{last, first}, ",")
+	return strings.Join([]string{last, first}, ", ")
 }
 
 type weeklySchedule []shift
