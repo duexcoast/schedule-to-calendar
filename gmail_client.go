@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
-	"path"
 	"regexp"
 	"strings"
 	"time"
@@ -94,7 +92,7 @@ func newSearchCriteria(email, subject string, dates ...time.Time) searchCriteria
 		endDate = timeToGmailFormat(tomorrow)
 	case 1:
 		startDate = timeToGmailFormat(dates[0])
-		endDate = timeToGmailFormat(dates[0].Add(oneDay))
+		endDate = timeToGmailFormat(dates[0].Add(oneDay * 2))
 	default:
 		startDate, endDate = timeToGmailFormat(dates[0]), timeToGmailFormat(dates[1])
 	}
@@ -140,7 +138,7 @@ type attachment struct {
 
 // findAllScheduleEmails will return a []message containing all schedule emails
 // sent after 1/1/2023.
-func (g *gmailService) findAllScheduleEmails(srv *gmail.Service) ([]message, error) {
+func (g *gmailService) findAllScheduleEmails() ([]message, error) {
 	msgs := []message{}
 
 	before := time.Date(2023, time.January, 1, 0, 0, 0, 0, time.Local)
@@ -152,7 +150,7 @@ func (g *gmailService) findAllScheduleEmails(srv *gmail.Service) ([]message, err
 	// currently authenticated user
 	user := "me"
 	searchString := g.generateGmailSearchTerm()
-	r, err := srv.Users.Messages.List(user).Q(searchString).Do()
+	r, err := g.srv.Users.Messages.List(user).Q(searchString).Do()
 	if err != nil {
 		// TODO: I still need to figure out the best way to log things and where
 		// to handle errors. Should I still log here if I'm returning the error?
@@ -165,7 +163,7 @@ func (g *gmailService) findAllScheduleEmails(srv *gmail.Service) ([]message, err
 
 	g.logger.Info("Processing messages from gmail inbox", "numMsgs", len(r.Messages))
 	for _, m := range r.Messages {
-		msg, err := srv.Users.Messages.Get(user, m.Id).Do()
+		msg, err := g.srv.Users.Messages.Get(user, m.Id).Do()
 		if err != nil {
 			// If we can't retrieve a particular message, we'll just log it
 			// and continue to the next message
@@ -245,13 +243,18 @@ func (g *gmailService) findScheduleEmail(date ...time.Time) (message, error) {
 			"Server Schedule", date[0], date[1])
 	}
 	g.searchCriteria = sc
-	req := g.srv.Users.Messages.List(user).Q(g.generateGmailSearchTerm())
+	searchTerm := g.generateGmailSearchTerm()
+	g.logger.Debug("generated search term", "searchTerm", searchTerm)
+	req := g.srv.Users.Messages.List(user).Q(searchTerm)
 	r, err := req.Do()
 	if err != nil {
 		log.Printf("Unable to retrieve messages: %v", err)
 		return message{}, err
 	}
-	log.Printf("Processing %v messages...\n", len(r.Messages))
+	log.Printf("Search result contains %d messages.\n", len(r.Messages))
+	if len(r.Messages) == 0 {
+		return message{}, fmt.Errorf("Did not find any messages matching these search terms:\n%s\nMessageResponse:\n%+v\n", searchTerm, r)
+	}
 	m := r.Messages[0]
 
 	msg, err := g.srv.Users.Messages.Get("me", m.Id).Do()
@@ -292,15 +295,9 @@ func (g *gmailService) findScheduleEmail(date ...time.Time) (message, error) {
 	return message, nil
 }
 
-// downloadAttachment takes the msg provided as an argument and downloads
-// the msg.attachment as a PDF. It saves the file in the shared directory
-// specified by g.Common.sharedDirectory in a "/pdf" subdirectory. The name of
-// the file is the same as the name of the attachment, with spaces removed.
-//
-// g.filename is set to the filename with the extension removed. This allows us
-// to pass the filename through the pdfParser and csvParser and conveniently add
-// the appropriate file extension upon format conversion.
-func (g *gmailService) downloadAttachment(msg message) error {
+// downloadAttachment takes the message provided and downloads the attachment.
+// It returns []byte representing the downloaded file.
+func (g *gmailService) downloadAttachment(msg message) ([]byte, error) {
 	req := g.srv.Users.Messages.Attachments.Get("me", msg.msgId,
 		msg.attachment.attachmentID)
 	attachment, err := req.Do()
@@ -308,51 +305,29 @@ func (g *gmailService) downloadAttachment(msg message) error {
 		g.logger.Error("Unable to retrieve attachment", "attachmentName",
 			msg.attachment.filename, "attachmentID",
 			msg.attachment.attachmentID, "err", err.Error())
-		return err
+		return nil, err
 	}
 	decoded, err := base64.URLEncoding.DecodeString(attachment.Data)
 	if err != nil {
 		g.logger.Error("Unable to decode attachment", "attachmentName",
 			msg.attachment.filename, "attachmentID",
 			msg.attachment.attachmentID, "err", err.Error())
-		return err
+		return decoded, err
 	}
-	// if g.outPath == "" {
-	filename := makeFilename(msg.attachment.filename)
-	g.filename = filename
-	fullFilename := strings.Join([]string{g.filename, ".pdf"}, "")
-	g.outPath = path.Join(g.sharedDirectory, "pdf", fullFilename)
-	// }
-
-	f, err := os.Create(g.outPath)
-	if err != nil {
-		g.logger.Error("Could not create file", "pathName", g.outPath,
-			"attachmentName", msg.attachment.filename, "attachmentID",
-			msg.attachment.attachmentID, "err", err.Error())
-		return err
-	}
-	defer f.Close()
-	_, err = f.Write(decoded)
-	if err != nil {
-		g.logger.Error("Could not write attachment to file: %q err: %v",
-			"pathName", g.outPath, "attachmentName", msg.attachment.filename,
-			"attachmentID", msg.attachment.attachmentID, "err", err.Error())
-		return err
-	}
-	return nil
+	return decoded, nil
 }
 
-func (g *gmailService) downloadAttachmentsSlice(msgs []message) {
-	for _, msg := range msgs {
-		if err := g.downloadAttachment(msg); err != nil {
-			// log and continue
-			g.logger.Error("Could not download attachment", "msgID", msg.msgId,
-				"attachmentName", msg.attachment.filename, "attachmentID",
-				msg.attachment.attachmentID)
-			continue
-		}
-	}
-}
+// func (g *gmailService) downloadAttachmentsSlice(msgs []message) {
+// 	for _, msg := range msgs {
+// 		if data, err := g.downloadAttachment(msg); err != nil {
+// 			// log and continue
+// 			g.logger.Error("Could not download attachment", "msgID", msg.msgId,
+// 				"attachmentName", msg.attachment.filename, "attachmentID",
+// 				msg.attachment.attachmentID)
+// 			continue
+// 		}
+// 	}
+// }
 
 // makeFilename removes spaces and extension from the filename
 func makeFilename(name string) string {

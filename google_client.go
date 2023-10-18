@@ -117,6 +117,5 @@ func setupGoogleClient() (*http.Client, error) {
 		return nil, err
 	}
 	client := getClient(config)
-	fmt.Println("GOT CLIENT")
 	return client, nil
 }
