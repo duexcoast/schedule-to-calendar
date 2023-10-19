@@ -5,73 +5,52 @@ import (
 	"bytes"
 	"encoding/csv"
 	"fmt"
-	"os"
-	"path"
+	"io"
+	"log"
 	"regexp"
 	"strings"
 
+	"github.com/unidoc/unipdf/v3/common/license"
 	"github.com/unidoc/unipdf/v3/extractor"
 	"github.com/unidoc/unipdf/v3/model"
 	"github.com/unidoc/unipdf/v3/pdfutil"
 	"golang.org/x/text/unicode/norm"
 )
 
+// InitPDFLicense intializes the Unidoc PDF license
+func InitPDFLicense(key string) {
+
+	if err := license.SetMeteredKey(key); err != nil {
+		log.Fatal("Could not register Unidoc License key", err)
+	}
+}
+
 type pdfParser struct {
 	*Common
-
-	// filename does not include extension
-	filename string
-	// path to input PDF of weekly schedule
-	inPath string
-	// path to output CSV of weekly schedule
-	outPath string
 }
 
-func newPDFParser(filename string, common *Common) *pdfParser {
-	// take the filename and add the correct extensions for the in and out paths
-	fullIn := strings.Join([]string{filename, ".pdf"}, "")
-	fullOut := strings.Join([]string{filename, ".csv"}, "")
-	in := path.Join(common.sharedDirectory, "pdf", fullIn)
-	out := path.Join(common.sharedDirectory, "csv", fullOut)
-	parser := &pdfParser{
-		filename: filename,
-		inPath:   in,
-		outPath:  out,
-		Common:   common,
-	}
-	return parser
-}
-
-// Method PDFtoCSV takes the PDF file stored at p.inPath and stores it as a CSV
-// file in p.outPath
-func (p *pdfParser) PDFtoCSV() error {
-	result, err := extractTable(p.inPath)
+func ParseSchedPDF(data io.ReadSeeker) ([]byte, error) {
+	result, err := extractTable(data)
 	if err != nil {
-		return fmt.Errorf("Could not parse PDF: %q into CSV. Err: %v", p.inPath, err)
+		return nil, err
 	}
-	result.saveCSVFiles(p.outPath)
-
-	return nil
+	bytes := result.Bytes()
+	fmt.Println(string(bytes))
+	return bytes, nil
 }
 
 // extractTable extracts the schedule table from the provided pdf, and returns
 // the a docTable containing the contents
-func extractTable(inPath string) (docTables, error) {
-	f, err := os.Open(inPath)
+func extractTable(data io.ReadSeeker) (docTables, error) {
+	pdfReader, err := model.NewPdfReaderLazy(data)
 	if err != nil {
-		return docTables{}, fmt.Errorf("Could not open %q err=%w", inPath, err)
-	}
-	defer f.Close()
-
-	pdfReader, err := model.NewPdfReaderLazy(f)
-	if err != nil {
-		return docTables{}, fmt.Errorf("NewPdfReaderLazy failed. %q err=%w", inPath, err)
+		return docTables{}, fmt.Errorf("NewPdfReaderLazy failed. %q err=%w", data, err)
 	}
 
 	table, err := extractPageTable(pdfReader)
 	if err != nil {
 		return docTables{}, fmt.Errorf("extractPageTables failed. inPath=%q err=%w",
-			inPath, err)
+			data, err)
 	}
 	result := docTables{table: table}
 	return result, nil
@@ -180,12 +159,8 @@ type docTables struct {
 // stringTable is the strings in TextTable.
 type stringTable [][]string
 
-func (r docTables) saveCSVFiles(csvRoot string) error {
-	contents := r.table.csv()
-	if err := os.WriteFile(csvRoot, []byte(contents), 0666); err != nil {
-		return fmt.Errorf("failed to write csvPath=%q err=%w", csvRoot, err)
-	}
-	return nil
+func (r docTables) Bytes() []byte {
+	return r.table.csv()
 }
 
 // wh returns the width and height of table `t`.
@@ -197,7 +172,7 @@ func (t stringTable) wh() (int, int) {
 }
 
 // csv returns `t` in CSV format.
-func (t stringTable) csv() string {
+func (t stringTable) csv() []byte {
 	w, h := t.wh()
 	b := new(bytes.Buffer)
 	csvwriter := csv.NewWriter(b)
@@ -209,7 +184,7 @@ func (t stringTable) csv() string {
 		csvwriter.Write(row)
 	}
 	csvwriter.Flush()
-	return b.String()
+	return b.Bytes()
 }
 
 // asStringTable returns TextTable `table` as a stringTable.

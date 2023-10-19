@@ -1,128 +1,46 @@
 package main
 
 import (
-	"fmt"
-	"io"
+	"bytes"
+	"log"
 	"os"
-	"path"
-	"runtime/debug"
-	"strconv"
-	"time"
-
-	"golang.org/x/exp/slog"
 )
 
 func main() {
-	// err := godotenv.Load()
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-	//
-	// appConfig, err := newAppConfig(os.Stdout)
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-	//
-	// common, err := newCommon(appConfig)
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-	//
-	// app := newApp(appConfig, common)
-	// logger := app.logger
-	// logger.Debug("App initialized.")
-	//
-	// // load metered License API key prior to using the Unidoc library
-	// UNIDOC_API_KEY := os.Getenv("UNIDOC_API_KEY")
-	// err = license.SetMeteredKey(UNIDOC_API_KEY)
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-	//
-	// pdfParser := newPDFParser("", "", common)
-	// pdfParser.parse()
-	//
-	// user := user{}
-	//
-	// csvParser := newCSVParser(pdfParser.outPath, )
-	//
-	// records := readCSVFile("testdata/schedule.csv")
-
-	// srv, err := setupGmailService()
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-	// FindScheduleEmail(srv)
-}
-
-type app struct {
-	*Common
-	cfg appConfig
-}
-
-type appConfig struct {
-	debug     bool
-	output    io.Writer
-	goVersion string
-	common    *Common
-	buildDate time.Time
-}
-
-type Common struct {
-	logger *slog.Logger
-	// this is the folder where PDFs and CSVs will be saved to and read from
-	sharedDirectory string
-	user            *user
-}
-
-func newAppConfig(output io.Writer) (appConfig, error) {
-	buildInfo, _ := debug.ReadBuildInfo()
-	debugEnv, err := strconv.ParseBool(os.Getenv("DEBUG"))
+	app := Initialize(os.Stdout)
+	gClient, err := setupGoogleClient()
 	if err != nil {
-		debugEnv = false
-		fmt.Printf("Could not parse DEBUG env variable. err: %v", err)
+		log.Fatal(err)
 	}
 
-	return appConfig{
-		debug:     debugEnv,
-		output:    output,
-		goVersion: buildInfo.GoVersion,
-		buildDate: time.Now(),
-	}, nil
-}
-
-func newCommon(cfg appConfig, sharedDir string, user *user) (*Common, error) {
-	// Structured logging setup
-	logLevel := slog.LevelInfo
-	if cfg.debug {
-		logLevel = slog.LevelDebug
+	gmSrv, err := newGmailService(app.Common, gClient)
+	if err != nil {
+		log.Fatal("Could not initialize Gmail Service API", err)
 	}
 
-	opts := &slog.HandlerOptions{
-		Level: logLevel,
+	pdf, err := gmSrv.FindAndDownloadSchedule()
+	if err != nil {
+		log.Fatal("Could not get schedule attachment", err)
 	}
 
-	logger := slog.New(slog.NewTextHandler(cfg.output, opts))
-	slog.SetDefault(logger)
+	readerPDF := bytes.NewReader(pdf)
+	csv, err := ParseSchedPDF(readerPDF)
+	if err != nil {
+		log.Fatal("Could not parse PDF", err)
+	}
 
-	// Create the shared directory if it doesn't exist yet. Including the /csv
-	// and /pdf subdirectories
-	csvPath := path.Join(sharedDir, "csv")
-	pdfPath := path.Join(sharedDir, "pdf")
-	os.MkdirAll(csvPath, 0750)
-	os.MkdirAll(pdfPath, 0750)
+	readerCSV := bytes.NewReader(csv)
+	weeklySched, err := ParseSchedCSV(readerCSV, app.user)
+	if err != nil {
+		log.Fatal("Could not parse CSV", err)
+	}
 
-	return &Common{
-		user:            user,
-		logger:          logger,
-		sharedDirectory: sharedDir,
-	}, nil
-}
+	gcSrv, err := newGoogleCalendarService(app.Common, gClient)
+	if err != nil {
+		log.Fatal("Could not initialize Google Calendar Service API", err)
+	}
 
-func newApp(cfg appConfig, common *Common) app {
-	common.logger.Info("App initialized")
-	return app{
-		Common: common,
-		cfg:    cfg,
+	if err = gcSrv.AddWeeklySchedule(weeklySched); err != nil {
+		log.Fatal("Could not add schedule to Google Calendar", err)
 	}
 }

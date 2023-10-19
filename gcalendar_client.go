@@ -29,6 +29,8 @@ func newGoogleCalendarService(common *Common, googleClient *http.Client) (google
 	}
 	calendarSrvc.srv = srv
 
+	common.logger.Debug("Google Calendar Service initialized")
+
 	return calendarSrvc, nil
 }
 
@@ -37,7 +39,7 @@ func (gc googleCalendarService) addEvent(event *calendar.Event) error {
 	if err != nil {
 		return fmt.Errorf("Unable to add event to calendar. Err: %v", err)
 	}
-	fmt.Printf("Event created: %s", event.HtmlLink)
+	gc.logger.Info("Event added", "summary", event.Summary, "start", event.Start, "end", event.End)
 	return nil
 }
 

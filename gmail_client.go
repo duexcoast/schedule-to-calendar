@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -20,14 +21,14 @@ const dateRegex = `^\d.*\d$`
 var rePDF = regexp.MustCompile(pdfRegex)
 var reDate = regexp.MustCompile(dateRegex)
 
+var ErrNoMsgFound = errors.New("No messages found.")
+
 type gmailService struct {
 	*Common
 
 	googleClient *http.Client
 	srv          *gmail.Service
 	searchCriteria
-	filename string
-	outPath  string
 }
 
 func newGmailService(common *Common, googleClient *http.Client) (*gmailService, error) {
@@ -42,7 +43,24 @@ func newGmailService(common *Common, googleClient *http.Client) (*gmailService, 
 		return nil, err
 	}
 	gmailSrvc.srv = srv
+	common.logger.Debug("Gmail Service initialized")
 	return gmailSrvc, nil
+}
+
+func (g *gmailService) FindAndDownloadSchedule(date ...time.Time) ([]byte, error) {
+	msg, err := g.findScheduleEmail(date...)
+	if err != nil {
+		if errors.Is(err, ErrNoMsgFound) {
+			// Handle this case. We really just want to log and try again
+			// the next day.
+		}
+		return nil, err
+	}
+	pdfAttachment, err := g.downloadAttachment(msg)
+	if err != nil {
+		return nil, err
+	}
+	return pdfAttachment, nil
 }
 
 type searchCriteria struct {
@@ -86,9 +104,9 @@ func newSearchCriteria(email, subject string, dates ...time.Time) searchCriteria
 		// we want the default search to be within 1 day. that means we want the
 		// after field to be today, and the before field to be one day in the future.
 		today := time.Now()
-		tomorrow := today.Add(oneDay)
+		tomorrow := today.Add(oneDay * 2)
 
-		startDate = timeToGmailFormat(today)
+		startDate = timeToGmailFormat(today.Add(-oneDay))
 		endDate = timeToGmailFormat(tomorrow)
 	case 1:
 		startDate = timeToGmailFormat(dates[0])
@@ -253,7 +271,8 @@ func (g *gmailService) findScheduleEmail(date ...time.Time) (message, error) {
 	}
 	log.Printf("Search result contains %d messages.\n", len(r.Messages))
 	if len(r.Messages) == 0 {
-		return message{}, fmt.Errorf("Did not find any messages matching these search terms:\n%s\nMessageResponse:\n%+v\n", searchTerm, r)
+		g.logger.Info("No messages found", "searchQuery", searchTerm)
+		return message{}, ErrNoMsgFound
 	}
 	m := r.Messages[0]
 
@@ -328,10 +347,3 @@ func (g *gmailService) downloadAttachment(msg message) ([]byte, error) {
 // 		}
 // 	}
 // }
-
-// makeFilename removes spaces and extension from the filename
-func makeFilename(name string) string {
-	noSpaces := strings.Replace(name, " ", "", -1)
-	filename := strings.Replace(noSpaces, ".pdf", "", -1)
-	return filename
-}

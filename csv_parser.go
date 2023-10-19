@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -12,9 +13,13 @@ import (
 const csvDateRegex = `(\d\d?/\d\d?/\d\d\d\d)`
 const repairCSVRegex = `(\d\d?:\d\d[pam]{2})|(oncall)|(REQUESTOFF)|(SHIFT|LEAD)`
 
+var ErrOnCallShift = errors.New("On call shift")
+
 func ParseSchedCSV(data io.Reader, user user) (weeklySchedule, error) {
 	schedCSV := readCSV(data)
+	fmt.Println("%+v", schedCSV)
 	weeklySched, err := getWeeklyHours(schedCSV, user)
+	fmt.Println("%v", weeklySched)
 	if err != nil {
 		return nil, err
 	}
@@ -44,6 +49,7 @@ func getWeeklyHours(records csvSchedRecords, user user) (weeklySchedule, error) 
 	for i := 0; i < len(records[0]); i++ {
 		dateMap[i] = records[0][i]
 	}
+	fmt.Println(dateMap)
 
 	// this will be populated with the index of the employees hours.
 	// their hours are contained here and employeeIndex + 1
@@ -72,10 +78,13 @@ func getWeeklyHours(records csvSchedRecords, user user) (weeklySchedule, error) 
 	// create slice to store []shift.
 	weeklySchedule := []shift{}
 
-	for i := employeeIndex; i < employeeIndex+2; i++ {
+	for i := employeeIndex; i <= employeeIndex+1; i++ {
 		for j := 1; j < len(records[i]); j++ {
 			if records[i][j] != "" {
 				startTime := records[i][j]
+				if onCallCheck(startTime) {
+					continue
+				}
 				date := dateMap[j]
 
 				shift, err := newShift(startTime, date)
@@ -87,6 +96,14 @@ func getWeeklyHours(records csvSchedRecords, user user) (weeklySchedule, error) 
 		}
 	}
 	return weeklySchedule, nil
+}
+
+// TODO: decide how to handle on call shifts
+func onCallCheck(startTime string) bool {
+	if startTime == "on call" {
+		return true
+	}
+	return false
 }
 
 func newShift(startTime string, date string) (shift, error) {
@@ -103,6 +120,7 @@ func newShift(startTime string, date string) (shift, error) {
 	if err != nil {
 		return shift, err
 	}
+	fmt.Println("TEST")
 
 	shift.StartTime = parsedStartTime
 	shift.Day = parsedStartTime.Weekday()
@@ -112,16 +130,12 @@ func newShift(startTime string, date string) (shift, error) {
 	// way or the other, so normalizing it just in case
 	startTimeNormalized := strings.ReplaceAll(startTime, " ", "")
 
-	// TODO: Handle the case where start time is "oncall", this means different
-	// things in the morning than it does in the evening, so we need to take the
-	// row and/or column into account
-
 	// switch case to set endTime based on startTimeNormalized
 	switch startTimeNormalized {
 	case "8:30am":
 		endTime = "3:00pm"
 	case "11:00am":
-
+		endTime = "4:00pm"
 	case "3:45pm", "4:00pm":
 		endTime = "10:00pm"
 	case "5:00pm":
