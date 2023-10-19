@@ -2,10 +2,10 @@ package main
 
 import (
 	"encoding/csv"
+	"errors"
 	"fmt"
+	"io"
 	"log"
-	"os"
-	"path"
 	"strings"
 	"time"
 )
@@ -13,47 +13,35 @@ import (
 const csvDateRegex = `(\d\d?/\d\d?/\d\d\d\d)`
 const repairCSVRegex = `(\d\d?:\d\d[pam]{2})|(oncall)|(REQUESTOFF)|(SHIFT|LEAD)`
 
-type csvParser struct {
-	*Common
-	filename  string
-	inputPath string
-}
+var ErrOnCallShift = errors.New("On call shift")
 
-func newCSVParser(filename string, common *Common) *csvParser {
-	// add the correct extension to the filename
-	fullFilename := strings.Join([]string{filename, ".csv"}, "")
-	in := path.Join(common.sharedDirectory, "csv", fullFilename)
-	csvParser := csvParser{
-		Common:    common,
-		filename:  filename,
-		inputPath: in,
+func ParseSchedCSV(data io.Reader, user user) (weeklySchedule, error) {
+	schedCSV := readCSV(data)
+	fmt.Println("%+v", schedCSV)
+	weeklySched, err := getWeeklyHours(schedCSV, user)
+	fmt.Println("%v", weeklySched)
+	if err != nil {
+		return nil, err
 	}
-
-	return &csvParser
+	return weeklySched, nil
 }
 
 type csvSchedRecords [][]string
 
 // method readCSVFile reads the CSV file stored at c.inputPath using a csvReader,
 // returning the parsed data.
-func (c *csvParser) readCSVFile() csvSchedRecords {
-	f, err := os.Open(c.inputPath)
-	if err != nil {
-		log.Fatalf("unable to read input file %q err=%v", c.inputPath, err)
-	}
-	defer f.Close()
-
-	csvReader := csv.NewReader(f)
+func readCSV(data io.Reader) csvSchedRecords {
+	csvReader := csv.NewReader(data)
 	records, err := csvReader.ReadAll()
 	if err != nil {
-		log.Fatalf("unable to parse file as a CSV. %q err=%v", c.inputPath, err)
+		log.Fatalf("unable to parse file as a CSV. %q err=%v", data, err)
 	}
 	return records
 }
 
 // getWeeklyHours converts the parsed csv data provided by the records arg into
 // []shift, for the employee specified in csvParser.user.
-func (c *csvParser) getWeeklyHours(records csvSchedRecords) (weeklySchedule, error) {
+func getWeeklyHours(records csvSchedRecords, user user) (weeklySchedule, error) {
 	// map key is index and value is date, taken from top row of
 	// csv records
 	dateMap := map[int]string{}
@@ -61,6 +49,7 @@ func (c *csvParser) getWeeklyHours(records csvSchedRecords) (weeklySchedule, err
 	for i := 0; i < len(records[0]); i++ {
 		dateMap[i] = records[0][i]
 	}
+	fmt.Println(dateMap)
 
 	// this will be populated with the index of the employees hours.
 	// their hours are contained here and employeeIndex + 1
@@ -71,7 +60,7 @@ func (c *csvParser) getWeeklyHours(records csvSchedRecords) (weeklySchedule, err
 	// this is the name of the employee as it appears on the schedule.
 	// We will compare against this to find the rows that belong to the
 	// employee
-	schedName := c.user.nameSchedFormat()
+	schedName := user.nameSchedFormat()
 
 	// loop over records and get the index of the employee
 	for i := 0; i < len(records); i++ {
@@ -83,16 +72,19 @@ func (c *csvParser) getWeeklyHours(records csvSchedRecords) (weeklySchedule, err
 	}
 
 	if !match {
-		return nil, fmt.Errorf("Could not find the employee in the csv file: %q. Looking for: %s", c.inputPath, schedName)
+		return nil, fmt.Errorf("Could not find the employee in the csv input. Looking for: %s", schedName)
 	}
 
 	// create slice to store []shift.
 	weeklySchedule := []shift{}
 
-	for i := employeeIndex; i < employeeIndex+2; i++ {
+	for i := employeeIndex; i <= employeeIndex+1; i++ {
 		for j := 1; j < len(records[i]); j++ {
 			if records[i][j] != "" {
 				startTime := records[i][j]
+				if onCallCheck(startTime) {
+					continue
+				}
 				date := dateMap[j]
 
 				shift, err := newShift(startTime, date)
@@ -104,6 +96,14 @@ func (c *csvParser) getWeeklyHours(records csvSchedRecords) (weeklySchedule, err
 		}
 	}
 	return weeklySchedule, nil
+}
+
+// TODO: decide how to handle on call shifts
+func onCallCheck(startTime string) bool {
+	if startTime == "on call" {
+		return true
+	}
+	return false
 }
 
 func newShift(startTime string, date string) (shift, error) {
@@ -120,6 +120,7 @@ func newShift(startTime string, date string) (shift, error) {
 	if err != nil {
 		return shift, err
 	}
+	fmt.Println("TEST")
 
 	shift.StartTime = parsedStartTime
 	shift.Day = parsedStartTime.Weekday()
@@ -129,16 +130,12 @@ func newShift(startTime string, date string) (shift, error) {
 	// way or the other, so normalizing it just in case
 	startTimeNormalized := strings.ReplaceAll(startTime, " ", "")
 
-	// TODO: Handle the case where start time is "oncall", this means different
-	// things in the morning than it does in the evening, so we need to take the
-	// row and/or column into account
-
 	// switch case to set endTime based on startTimeNormalized
 	switch startTimeNormalized {
 	case "8:30am":
 		endTime = "3:00pm"
 	case "11:00am":
-
+		endTime = "4:00pm"
 	case "3:45pm", "4:00pm":
 		endTime = "10:00pm"
 	case "5:00pm":

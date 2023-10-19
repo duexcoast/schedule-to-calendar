@@ -17,6 +17,23 @@ import (
 	"google.golang.org/api/gmail/v1"
 )
 
+func setupGoogleClient() (*http.Client, error) {
+	b, err := os.ReadFile("credentials.json")
+	if err != nil {
+		err = fmt.Errorf("Unable to read client secret file: %v", err)
+		return nil, err
+	}
+
+	// If modifying these scopes, delete your previously saved token.json
+	config, err := google.ConfigFromJSON(b, gmail.GmailReadonlyScope, calendar.CalendarScope)
+	if err != nil {
+		err = fmt.Errorf("Unable to parse client secret file to config: %v", err)
+		return nil, err
+	}
+	client := getClient(config)
+	return client, nil
+}
+
 // Retrieve a token, saves the token, then returns the generated client.
 func getClient(config *oauth2.Config) *http.Client {
 	// The file token.json stores the user's access and refresh tokens, and is
@@ -101,22 +118,4 @@ func saveToken(path string, token *oauth2.Token) {
 	}
 	defer f.Close()
 	json.NewEncoder(f).Encode(token)
-}
-
-func setupGoogleClient() (*http.Client, error) {
-	b, err := os.ReadFile("credentials.json")
-	if err != nil {
-		err = fmt.Errorf("Unable to read client secret file: %v", err)
-		return nil, err
-	}
-
-	// If modifying these scopes, delete your previously saved token.json
-	config, err := google.ConfigFromJSON(b, gmail.GmailReadonlyScope, calendar.CalendarScope)
-	if err != nil {
-		err = fmt.Errorf("Unable to parse client secret file to config: %v", err)
-		return nil, err
-	}
-	client := getClient(config)
-	fmt.Println("GOT CLIENT")
-	return client, nil
 }

@@ -14,8 +14,8 @@ type user struct {
 	schedule weeklySchedule
 }
 
-func newUser(name, email string) *user {
-	user := &user{
+func newUser(name, email string) user {
+	user := user{
 		name:  name,
 		email: email,
 	}
