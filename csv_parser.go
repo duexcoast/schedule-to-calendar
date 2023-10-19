@@ -3,9 +3,8 @@ package main
 import (
 	"encoding/csv"
 	"fmt"
+	"io"
 	"log"
-	"os"
-	"path"
 	"strings"
 	"time"
 )
@@ -13,47 +12,31 @@ import (
 const csvDateRegex = `(\d\d?/\d\d?/\d\d\d\d)`
 const repairCSVRegex = `(\d\d?:\d\d[pam]{2})|(oncall)|(REQUESTOFF)|(SHIFT|LEAD)`
 
-type csvParser struct {
-	*Common
-	filename  string
-	inputPath string
-}
-
-func newCSVParser(filename string, common *Common) *csvParser {
-	// add the correct extension to the filename
-	fullFilename := strings.Join([]string{filename, ".csv"}, "")
-	in := path.Join(common.sharedDirectory, "csv", fullFilename)
-	csvParser := csvParser{
-		Common:    common,
-		filename:  filename,
-		inputPath: in,
+func ParseSchedCSV(data io.Reader, user user) (weeklySchedule, error) {
+	schedCSV := readCSV(data)
+	weeklySched, err := getWeeklyHours(schedCSV, user)
+	if err != nil {
+		return nil, err
 	}
-
-	return &csvParser
+	return weeklySched, nil
 }
 
 type csvSchedRecords [][]string
 
 // method readCSVFile reads the CSV file stored at c.inputPath using a csvReader,
 // returning the parsed data.
-func (c *csvParser) readCSVFile() csvSchedRecords {
-	f, err := os.Open(c.inputPath)
-	if err != nil {
-		log.Fatalf("unable to read input file %q err=%v", c.inputPath, err)
-	}
-	defer f.Close()
-
-	csvReader := csv.NewReader(f)
+func readCSV(data io.Reader) csvSchedRecords {
+	csvReader := csv.NewReader(data)
 	records, err := csvReader.ReadAll()
 	if err != nil {
-		log.Fatalf("unable to parse file as a CSV. %q err=%v", c.inputPath, err)
+		log.Fatalf("unable to parse file as a CSV. %q err=%v", data, err)
 	}
 	return records
 }
 
 // getWeeklyHours converts the parsed csv data provided by the records arg into
 // []shift, for the employee specified in csvParser.user.
-func (c *csvParser) getWeeklyHours(records csvSchedRecords) (weeklySchedule, error) {
+func getWeeklyHours(records csvSchedRecords, user user) (weeklySchedule, error) {
 	// map key is index and value is date, taken from top row of
 	// csv records
 	dateMap := map[int]string{}
@@ -71,7 +54,7 @@ func (c *csvParser) getWeeklyHours(records csvSchedRecords) (weeklySchedule, err
 	// this is the name of the employee as it appears on the schedule.
 	// We will compare against this to find the rows that belong to the
 	// employee
-	schedName := c.user.nameSchedFormat()
+	schedName := user.nameSchedFormat()
 
 	// loop over records and get the index of the employee
 	for i := 0; i < len(records); i++ {
@@ -83,7 +66,7 @@ func (c *csvParser) getWeeklyHours(records csvSchedRecords) (weeklySchedule, err
 	}
 
 	if !match {
-		return nil, fmt.Errorf("Could not find the employee in the csv file: %q. Looking for: %s", c.inputPath, schedName)
+		return nil, fmt.Errorf("Could not find the employee in the csv input. Looking for: %s", schedName)
 	}
 
 	// create slice to store []shift.
